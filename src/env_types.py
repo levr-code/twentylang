@@ -1,109 +1,83 @@
+from __future__ import annotations
+
 from flask_socketio import emit
+
+
 class BaseEnvironment:
     """
     BaseEnvironment class for managing variables and output in a conversational environment.
 
-    This class provides a foundation for storing state, emitting output, and maintaining
-    a chat history. It tracks variables, the last computed value, and all outputs.
-
-    Attributes:
-        _vars (dict): Internal dictionary storing named variables.
-        last: The last value that was output or retrieved.
-        chat (list): List of all string outputs emitted during the session.
+    It tracks variables, the last computed value, and all outputs.
     """
+
     def __init__(self):
-        self._vars = {}
-        self.last = ""
-        self.chat = []
+        self._vars: dict[str, object] = {}
+        self.last: object = ""
+        self.chat: list[str] = []
 
     def output(self, x):
         """
         Output a value to the server and append it to the chat history.
-        
-        Attempts to emit the provided value as a string to the server. If a RuntimeError
-        occurs during emission, it is silently caught and ignored. The string representation
-        of the value is then appended to the chat history and stored as the last output.
-        
-        Args:
-            x: The value to output. Will be converted to a string.
         """
         try:
             emit("server", str(x))
         except RuntimeError:
             pass
+
         self.chat.append(str(x))
         self.last = x
 
     def get(self, name):
         """
         Retrieve the value of a variable by name and update the last accessed variable.
-        
-        Args:
-            name: The name of the variable to retrieve.
-            
-        Returns:
-            The value of the variable corresponding to the given name.
-            
-        Raises:
-            KeyError: If the variable name does not exist in the variables dictionary.
         """
         self.last = self._vars[name]
+        return self.last
 
     def set(self, name, value):
-        """
-        Set a variable in the environment.
-
-        Args:
-            name (str): The name of the variable to set.
-            value: The value to assign to the variable.
-        """
+        """Set a variable in the environment."""
         self._vars[name] = value
 
 
 class CEnvironment(BaseEnvironment):
     def __init__(self):
         super().__init__()
-        self.heap = [{"value": None, 'free': True} for _ in range(255)]
+        self.heap = [{"value": None, "free": True} for _ in range(255)]
         self._first_free = 1
 
-    def alloc(self, amount):
-        if self.heap[self._first_free]['free'] is False:
-            return None
-        self.heap[self._first_free]['free'] = False
-        self.heap[self._first_free]['value'] = [None for _ in range(amount)]
-        addr = self._first_free
-        self._first_free = 1
-        while not self.heap[self._first_free]['free']:
+    def alloc(self, amount: int):
+        # Find first free slot safely
+        while self._first_free < len(self.heap) and not self.heap[self._first_free]["free"]:
             self._first_free += 1
-        return str(hex(addr))[2:]
+
+        if self._first_free >= len(self.heap):
+            return None  # out of heap slots
+
+        self.heap[self._first_free]["free"] = False
+        self.heap[self._first_free]["value"] = [None for _ in range(amount)]
+
+        addr = self._first_free
+        self._first_free = 1  # next allocation searches from start
+        return hex(addr)[2:]  # without 0x
 
     def free(self, addr):
-        addr = int(addr, 16)
-        self.heap[addr]['free'] = True
-        self.heap[addr]['value'] = None
-        self._first_free = addr
+        addr_i = int(addr, 16)
+        self.heap[addr_i]["free"] = True
+        self.heap[addr_i]["value"] = None
+        self._first_free = addr_i
 
     def heapget(self, addr, inneraddr):
-        self.last = self.heap[int(addr, 16)]['value'][int(inneraddr, 16)]
+        value = self.heap[int(addr, 16)]["value"][int(inneraddr, 16)]
+        self.last = value
+        return value
 
     def heapset(self, addr, inneraddr, value):
-        self.heap[int(addr, 16)]['value'][int(inneraddr, 16)] = value
+        self.heap[int(addr, 16)]["value"][int(inneraddr, 16)] = value
 
 
 class BaseEnvType:
-    """
-    Base class for environment types.
+    """Base class for environment types."""
 
-    This class serves as a foundation for creating typed environment variables.
-    It wraps a value and provides conversion methods to standard Python types.
-
-    Attributes:
-        value: The underlying value of the environment type.
-
-    Methods:
-        __int__: Convert the value to an integer.
-        __str__: Convert the value to a string representation.
-    """
     def __init__(self, value):
         self.value = value
 
@@ -115,45 +89,21 @@ class BaseEnvType:
 
 
 class Variable(BaseEnvType):
-    """
-    Represents a variable in the environment type system.
-    A Variable is a basic environment type that can hold or reference values
-    within the type system. It serves as a fundamental building block for
-    constructing more complex type structures.
-    """
+    """Represents a variable in the environment type system."""
     pass
 
 
 class BlockType(BaseEnvType):
-    """
-    Represents a block in the environment type system.
-    A BlockType is a basic environment type that can hold or reference values
-    within the type system. It serves as a fundamental building block for
-    constructing more complex type structures.
-    """
-    
-    @property
-    def converted(self):
-        """
-        Return the converted value by removing the first and last characters.
+    """Represents a block in the environment type system."""
 
-        Returns:
-            str: The value with the first and last characters removed.
-        """
+    @property
+    def converted(self) -> str:
         return self.value[1:-1]
 
 
 class HexValue(BaseEnvType):
-    """
-    A class representing hexadecimal values.
+    """A class representing hexadecimal values."""
 
-    This class extends BaseEnvType to provide hexadecimal representation
-    of numeric values.
-
-    Properties:
-        as_hex (str): Returns the hexadecimal string representation of the value.
-            Example: hex(255) returns '0xff'
-    """
     @property
-    def as_hex(self):
+    def as_hex(self) -> str:
         return hex(self.value)
